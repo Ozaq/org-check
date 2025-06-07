@@ -1,4 +1,5 @@
 import os
+import sys
 
 from github import Github, Auth, GithubException
 from jinja2 import Template
@@ -119,7 +120,7 @@ def render_branch_protection_report(items, template_str: str) -> None:
 
 def main():
     branch_names = ["main", "master", "develop"]
-    
+
     auth = Auth.Token(os.environ["GH_TOKEN"])
     g = Github(auth=auth)
     ecmwf_org = g.get_organization("ecmwf")
@@ -129,30 +130,37 @@ def main():
             print(f"Cheking {repo.name}@{branch_name}")
             try:
                 b = repo.get_branch(branch_name)
+                if not b.protected:
+                    items.append(
+                        {
+                            "repository": repo.name,
+                            "branch": branch_name,
+                            "unprotected": True,
+                        }
+                    )
+                else:
+                    try:
+                        prot = b.get_protection()
+                    except GithubException as _:
+                        # Branch is protected (public information).
+                        # But we cannot access detailed protection information.
+                        # This means we do not have sufficient access rights.
+                        print("Insufficient access rights")
+                        sys.exit(1)
+                    items.append(
+                        {
+                            "repository": repo.name,
+                            "branch": branch_name,
+                            "allow_deletions": prot.allow_deletions,
+                            "allow_force_pushes": prot.allow_force_pushes,
+                            "enforce_admins": prot.enforce_admins,
+                            "required_linear_history": prot.required_linear_history,
+                            "required_signatures": prot.required_signatures,
+                        }
+                    )
             except GithubException as _:
                 continue
-            try:
-                prot = b.get_protection()
-                items.append(
-                    {
-                        "repository": repo.name,
-                        "branch": branch_name,
-                        "allow_deletions": prot.allow_deletions,
-                        "allow_force_pushes": prot.allow_force_pushes,
-                        "enforce_admins": prot.enforce_admins,
-                        "required_linear_history": prot.required_linear_history,
-                        "required_signatures": prot.required_signatures,
-                    }
-                )
-            except GithubException as _:
-                items.append(
-                    {
-                        "repository": repo.name,
-                        "branch": branch_name,
-                        "unprotected": True,
-                    }
-                )
-                
+
     render_branch_protection_report(items, template)
 
 
